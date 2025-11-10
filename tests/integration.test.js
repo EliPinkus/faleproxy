@@ -3,68 +3,13 @@ const cheerio = require('cheerio');
 const { sampleHtmlWithYale } = require('./test-utils');
 const nock = require('nock');
 
-// Import app without starting server
+// Create a test app that uses the same logic as main app
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
 
-const app = express();
-
-// Middleware to parse request bodies
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, '../public')));
-
-// Route to serve the main page
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../public', 'index.html'));
-});
-
-// API endpoint to fetch and modify content (copied from app.js)
-app.post('/fetch', async (req, res) => {
-  try {
-    const { url } = req.body;
-    
-    if (!url) {
-      return res.status(400).json({ error: 'URL is required' });
-    }
-
-    // Fetch the content from the provided URL
-    const response = await axios.get(url);
-    const html = response.data;
-
-    // Use cheerio to parse HTML and selectively replace text content, not URLs
-    const $ = cheerio.load(html);
-    
-    // Process text nodes in the body
-    $('body *').contents().filter(function() {
-      return this.nodeType === 3; // Text nodes only
-    }).each(function() {
-      // Replace text content but not in URLs or attributes
-      const text = $(this).text();
-      const newText = text.replace(/Yale/g, 'Fale').replace(/yale/g, 'fale').replace(/YALE/g, 'FALE');
-      if (text !== newText) {
-        $(this).replaceWith(newText);
-      }
-    });
-    
-    // Process title separately
-    const title = $('title').text().replace(/Yale/g, 'Fale').replace(/yale/g, 'fale').replace(/YALE/g, 'FALE');
-    $('title').text(title);
-    
-    return res.json({ 
-      success: true, 
-      content: $.html(),
-      title: title,
-      originalUrl: url
-    });
-  } catch (error) {
-    console.error('Error fetching URL:', error.message);
-    return res.status(500).json({ 
-      error: `Failed to fetch content: ${error.message}` 
-    });
-  }
-});
+// Import the main app module (we'll create it as a module)
+const app = require('../app-module');
 
 describe('Integration Tests', () => {
   beforeAll(async () => {
@@ -76,6 +21,15 @@ describe('Integration Tests', () => {
   afterAll(async () => {
     nock.cleanAll();
     nock.enableNetConnect();
+  });
+
+  test('Should serve the main page', async () => {
+    const response = await request(app)
+      .get('/')
+      .expect(200);
+    
+    // Just verify we get an HTML response (index.html may not exist for testing)
+    expect(response.type).toMatch(/html/);
   });
 
   test('Should replace Yale with Fale in fetched content', async () => {
